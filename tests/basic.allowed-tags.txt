@@ -1,0 +1,17 @@
+Hello, World!
+
+<p>
+This is some e-mail content. Even though it has whitespace and newlines, the e-mail converter will handle it correctly.
+</p>
+<p>
+Even mismatched tags.
+</p>
+
+A div
+Another div
+A div
+within a div <p>
+Another line
+Yet another line
+</p>
+<a href="http://foo.com">A link</a>

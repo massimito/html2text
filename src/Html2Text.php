@@ -3,11 +3,17 @@
 namespace Soundasleep;
 
 class Html2Text {
+    const TAGS_INLINE = ['a', 'span', 'br', 'strong', 'b', 'i', 'button', 'em', 'img', 'input', 'q', 'tr', 'th', 'td'];
+    const TAGS_SELF_CLOSED = ['br', 'img', 'input'];
+    const KEEP_ATTRIBUTES = ['style', 'href', 'src', 'title', 'alt'];
 
 	public static function defaultOptions() {
 		return array(
 			'ignore_errors' => false,
 			'drop_links'    => false,
+			// Allows you to keep certain HTML tags.
+		    // Can be an array or the same string format as 'allowable_tags' parameter of PHP's strip_tags.
+		    'allowed_tags'  => null
 		);
 	}
 
@@ -22,7 +28,7 @@ class Html2Text {
 	 * </ul>
 	 *
 	 * @param string $html the input HTML
-	 * @param boolean $ignore_error Ignore xml parsing errors
+	 * @param boolean $options Options (see defaultOptions function)
 	 * @return string the HTML converted, as best as possible, to text
 	 * @throws Html2TextException if the HTML could not be loaded as a {@link \DOMDocument}
 	 */
@@ -257,83 +263,131 @@ class Html2Text {
 		}
 
 		$name = strtolower($node->nodeName);
-		$nextName = static::nextChildName($node);
+		$allowedTags = [];
 
-		// start whitespace
-		switch ($name) {
-			case "hr":
-				$prefix = '';
-				if ($prevName != null) {
-					$prefix = "\n";
-				}
-				return $prefix . "---------------------------------------------------------------\n";
+		if ($node instanceof \DOMElement && !empty($name)) {
+		    if (!empty($options['allowed_tags'])) {
+		        if (is_string($options['allowed_tags'])) {
+		        	$allowedTags = preg_split('#[</>]+#', $options['allowed_tags'], -1, PREG_SPLIT_NO_EMPTY);
+		    	} else {
+		        	$allowedTags = $options['allowed_tags'];
+		    	}
+		    }
 
-			case "style":
-			case "head":
-			case "title":
-			case "meta":
-			case "script":
-				// ignore these tags
-				return "";
+		    $attrInclude = $node->getAttribute('data-text-version');
 
-			case "h1":
-			case "h2":
-			case "h3":
-			case "h4":
-			case "h5":
-			case "h6":
-			case "ol":
-			case "ul":
-			case "pre":
-				// add two newlines
-				$output = "\n\n";
-				break;
+		    if ($attrInclude === 'false') {
+		        return "";
+		    }
 
-			case "td":
-			case "th":
-				// add tab char to separate table fields
-			   $output = "\t";
-			   break;
+		    $keepTag = $attrInclude === 'true' || in_array($name, $allowedTags);
 
-			case "p":
-				// Microsoft exchange emails often include HTML which, when passed through
-				// html2text, results in lots of double line returns everywhere.
-				//
-				// To fix this, for any p element with a className of `MsoNormal` (the standard
-				// classname in any Microsoft export or outlook for a paragraph that behaves
-				// like a line return) we skip the first line returns and set the name to br.
-				if ($is_office_document && $node->getAttribute('class') == 'MsoNormal') {
-					$output = "";
-					$name = 'br';
-					break;
-				}
-
-				// add two lines
-				$output = "\n\n";
-				break;
-
-			case "tr":
-				// add one line
-				$output = "\n";
-				break;
-
-			case "div":
-				$output = "";
-				if ($prevName !== null) {
-					// add one line
-					$output .= "\n";
-				}
-				break;
-
-			case "li":
-				$output = "- ";
-				break;
-
-			default:
-				// print out contents of unknown tags
-				$output = "";
-				break;
+		    if ($keepTag && $name == 'table') {
+		        foreach (['tr', 'th', 'td', 'thead', 'tbody'] as $tableTag) {
+		            if (!in_array($tableTag, $allowedTags)) {
+		                $allowedTags[] = $tableTag;
+		            }
+		        }
+		    }
+		} else {
+		    $keepTag = false;
 		}
+
+		if ($keepTag) {
+		    $output = "<$name";
+
+		    foreach (static::KEEP_ATTRIBUTES as $attrName) {
+		        $attrValue = $node->getAttribute($attrName);
+
+		        if (!empty($attrValue)) {
+		            $output .= " $attrName=\"" . str_replace('"', '&quot;', $attrValue) . '"';
+		        }
+		    }
+
+		    $output .= '>';
+
+		    if (!in_array($name, static::TAGS_INLINE)) {
+		        $output .= "\n";
+		    }
+		} else {
+    		$nextName = static::nextChildName($node);
+
+    		// start whitespace
+    		switch ($name) {
+    			case "hr":
+    				$prefix = '';
+    				if ($prevName != null) {
+    					$prefix = "\n";
+    				}
+    				return $prefix . "---------------------------------------------------------------\n";
+
+    			case "style":
+    			case "head":
+    			case "title":
+    			case "meta":
+    			case "script":
+    				// ignore these tags
+    				return "";
+
+    			case "h1":
+    			case "h2":
+    			case "h3":
+    			case "h4":
+    			case "h5":
+    			case "h6":
+    			case "ol":
+    			case "ul":
+    			case "pre":
+    				// add two newlines
+    				$output = "\n\n";
+    				break;
+
+    			case "td":
+    			case "th":
+    				// add tab char to separate table fields
+    			   $output = "\t";
+    			   break;
+
+    			case "p":
+    				// Microsoft exchange emails often include HTML which, when passed through
+    				// html2text, results in lots of double line returns everywhere.
+    				//
+    				// To fix this, for any p element with a className of `MsoNormal` (the standard
+    				// classname in any Microsoft export or outlook for a paragraph that behaves
+    				// like a line return) we skip the first line returns and set the name to br.
+    				if ($is_office_document && $node->getAttribute('class') == 'MsoNormal') {
+    					$output = "";
+    					$name = 'br';
+    					break;
+    				}
+
+    				// add two lines
+    				$output = "\n\n";
+    				break;
+
+    			case "tr":
+    				// add one line
+    				$output = "\n";
+    				break;
+
+    			case "div":
+    				$output = "";
+    				if ($prevName !== null) {
+    					// add one line
+    					$output .= "\n";
+    				}
+    				break;
+
+    			case "li":
+    				$output = "- ";
+    				break;
+
+    			default:
+    				// print out contents of unknown tags
+    				$output = "";
+    				break;
+    		}
+	    }
 
 		// debug
 		//$output .= "[$name,$nextName]";
@@ -388,116 +442,130 @@ class Html2Text {
 		}
 
 		// end whitespace
-		switch ($name) {
-			case "h1":
-			case "h2":
-			case "h3":
-			case "h4":
-			case "h5":
-			case "h6":
-			case "pre":
-			case "p":
-				// add two lines
-				$output .= "\n\n";
-				break;
-
-			case "br":
-				// add one line
-				$output .= "\n";
-				break;
-
-			case "div":
-				break;
-
-			case "a":
-				// links are returned in [text](link) format
-				$href = $node->getAttribute("href");
-
-				$output = trim($output);
-
-				// remove double [[ ]] s from linking images
-				if (substr($output, 0, 1) == "[" && substr($output, -1) == "]") {
-					$output = substr($output, 1, strlen($output) - 2);
-
-					// for linking images, the title of the <a> overrides the title of the <img>
-					if ($node->getAttribute("title")) {
-						$output = $node->getAttribute("title");
-					}
-				}
-
-				// if there is no link text, but a title attr
-				if (!$output && $node->getAttribute("title")) {
-					$output = $node->getAttribute("title");
-				}
-
-				if ($href == null) {
-					// it doesn't link anywhere
-					if ($node->getAttribute("name") != null) {
-						if ($options['drop_links']) {
-							$output = "$output";
-						} else {
-							$output = "[$output]";
-						}
-					}
-				} else {
-					if ($href == $output || $href == "mailto:$output" || $href == "http://$output" || $href == "https://$output") {
-						// link to the same address: just use link
-						$output = "$output";
-					} else {
-						// replace it
-						if ($output) {
-							if ($options['drop_links']) {
-								$output = "$output";
-							} else {
-								$output = "[$output]($href)";
-							}
-						} else {
-							// empty string
-							$output = "$href";
-						}
-					}
-				}
-
-				// does the next node require additional whitespace?
-				switch ($nextName) {
-					case "h1": case "h2": case "h3": case "h4": case "h5": case "h6":
-						$output .= "\n";
-						break;
-				}
-				break;
-
-			case "img":
-				if ($node->getAttribute("title")) {
-					$output = "[" . $node->getAttribute("title") . "]";
-				} elseif ($node->getAttribute("alt")) {
-					$output = "[" . $node->getAttribute("alt") . "]";
-				} else {
-					$output = "";
-				}
-				break;
-
-			case "li":
-				$output .= "\n";
-				break;
-
-			case "blockquote":
-				// process quoted text for whitespace/newlines
-				$output = static::processWhitespaceNewlines($output);
-
-				// add leading newline
-				$output = "\n" . $output;
-
-				// prepend '> ' at the beginning of all lines
-				$output = preg_replace("/\n/im", "\n> ", $output);
-
-				// replace leading '> >' with '>>'
-				$output = preg_replace("/\n> >/im", "\n>>", $output);
-
-				// add another leading newline and trailing newlines
-				$output = "\n" . $output . "\n\n";
-				break;
-			default:
-				// do nothing
+		if ($keepTag) {
+		    if (!in_array($name, static::TAGS_INLINE)) {
+		        $output .= "\n";
+		    }
+		    
+		    if (!in_array($name, static::TAGS_SELF_CLOSED)) {
+		        $output .= "</$name>";
+		        
+		        if (!in_array($name, static::TAGS_INLINE)) {
+		            $output .= "\n";
+		        }
+		    }
+		} else {
+    		switch ($name) {
+    			case "h1":
+    			case "h2":
+    			case "h3":
+    			case "h4":
+    			case "h5":
+    			case "h6":
+    			case "pre":
+    			case "p":
+    				// add two lines
+    				$output .= "\n\n";
+    				break;
+    
+    			case "br":
+    				// add one line
+    				$output .= "\n";
+    				break;
+    
+    			case "div":
+    				break;
+    
+    			case "a":
+    				// links are returned in [text](link) format
+    				$href = $node->getAttribute("href");
+    
+    				$output = trim($output);
+    
+    				// remove double [[ ]] s from linking images
+    				if (substr($output, 0, 1) == "[" && substr($output, -1) == "]") {
+    					$output = substr($output, 1, strlen($output) - 2);
+    
+    					// for linking images, the title of the <a> overrides the title of the <img>
+    					if ($node->getAttribute("title")) {
+    						$output = $node->getAttribute("title");
+    					}
+    				}
+    
+    				// if there is no link text, but a title attr
+    				if (!$output && $node->getAttribute("title")) {
+    					$output = $node->getAttribute("title");
+    				}
+    
+    				if ($href == null) {
+    					// it doesn't link anywhere
+    					if ($node->getAttribute("name") != null) {
+    						if ($options['drop_links']) {
+    							$output = "$output";
+    						} else {
+    							$output = "[$output]";
+    						}
+    					}
+    				} else {
+    					if ($href == $output || $href == "mailto:$output" || $href == "http://$output" || $href == "https://$output") {
+    						// link to the same address: just use link
+    						$output = "$output";
+    					} else {
+    						// replace it
+    						if ($output) {
+    							if ($options['drop_links']) {
+    								$output = "$output";
+    							} else {
+    								$output = "[$output]($href)";
+    							}
+    						} else {
+    							// empty string
+    							$output = "$href";
+    						}
+    					}
+    				}
+    
+    				// does the next node require additional whitespace?
+    				switch ($nextName) {
+    					case "h1": case "h2": case "h3": case "h4": case "h5": case "h6":
+    						$output .= "\n";
+    						break;
+    				}
+    				break;
+    
+    			case "img":
+    				if ($node->getAttribute("title")) {
+    					$output = "[" . $node->getAttribute("title") . "]";
+    				} elseif ($node->getAttribute("alt")) {
+    					$output = "[" . $node->getAttribute("alt") . "]";
+    				} else {
+    					$output = "";
+    				}
+    				break;
+    
+    			case "li":
+    				$output .= "\n";
+    				break;
+    
+    			case "blockquote":
+    				// process quoted text for whitespace/newlines
+    				$output = static::processWhitespaceNewlines($output);
+    
+    				// add leading newline
+    				$output = "\n" . $output;
+    
+    				// prepend '> ' at the beginning of all lines
+    				$output = preg_replace("/\n/im", "\n> ", $output);
+    
+    				// replace leading '> >' with '>>'
+    				$output = preg_replace("/\n> >/im", "\n>>", $output);
+    
+    				// add another leading newline and trailing newlines
+    				$output = "\n" . $output . "\n\n";
+    				break;
+    			default:
+    				// do nothing
+    		}
 		}
 
 		return $output;

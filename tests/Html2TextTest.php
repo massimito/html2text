@@ -141,4 +141,10 @@ class Html2TextTest extends \PHPUnit\Framework\TestCase {
 		$this->doTestWithResults("anchors", "anchors.no-links", array('drop_links' => true));
 	}
 
+	/**
+	 * Allowed tags: <p>, <a>
+	 */
+	function testBasicAllowedTags() {
+	    $this->doTestWithResults("basic", "basic.allowed-tags", array('allowed_tags' => ['p', 'a']));
+	}
 }
